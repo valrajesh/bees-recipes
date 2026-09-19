@@ -139,6 +139,36 @@ class CosmosService:
             logger.error(f"Error reading recipe '{recipe_id}' from Cosmos DB: {e}")
             return None
 
+    def update_recipe(self, recipe_id: str, recipe: RecipeResponse) -> Optional[Dict[str, Any]]:
+        """Updates an existing recipe document in Cosmos DB by recipeId."""
+        if not self.is_ready():
+            return None
+
+        try:
+            self._container.read_item(item=recipe_id, partition_key=recipe_id)
+
+            detail = recipe.recipeDetail
+            detail.id = recipe_id
+            detail.recipeId = recipe_id
+            detail.savedToDb = True
+
+            doc_data: Dict[str, Any] = recipe.model_dump()
+            doc_data["id"] = recipe_id
+            doc_data["recipeId"] = recipe_id
+
+            return self._container.replace_item(
+                item=recipe_id,
+                body=doc_data,
+            )
+        except exceptions.CosmosResourceNotFoundError:
+            return None
+        except exceptions.CosmosHttpResponseError as e:
+            logger.error(f"Cosmos DB HTTP error updating recipe '{recipe_id}': {e.message} (status: {e.status_code})")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error updating recipe '{recipe_id}' in Cosmos DB: {e}")
+            raise
+
     def list_recipes(self, limit: int = 50, source_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Lists recently saved recipeDetail documents from Cosmos DB."""
         if not self.is_ready():
@@ -170,6 +200,10 @@ class CosmosService:
     async def get_recipe_async(self, recipe_id: str) -> Optional[Dict[str, Any]]:
         """Asynchronously retrieves a recipe by recipeId from Cosmos DB."""
         return await asyncio.to_thread(self.get_recipe, recipe_id)
+
+    async def update_recipe_async(self, recipe_id: str, recipe: RecipeResponse) -> Optional[Dict[str, Any]]:
+        """Asynchronously updates recipe in Cosmos DB."""
+        return await asyncio.to_thread(self.update_recipe, recipe_id, recipe)
 
     async def list_recipes_async(self, limit: int = 50, source_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Asynchronously lists recipes from Cosmos DB."""

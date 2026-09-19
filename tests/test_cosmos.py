@@ -71,6 +71,26 @@ def test_cosmos_get_recipe(mock_recipe):
     mock_container.read_item.assert_called_once_with(item="rec_123", partition_key="rec_123")
 
 
+def test_cosmos_update_recipe_replaces_existing_document(mock_recipe):
+    service = CosmosService()
+    mock_container = MagicMock()
+    mock_container.read_item.return_value = {"id": "rec_test123", "recipeId": "rec_test123"}
+    mock_container.replace_item.return_value = mock_recipe.model_dump()
+    service._container = mock_container
+    service._client = MagicMock()
+
+    updated = service.update_recipe("rec_test123", mock_recipe)
+
+    assert updated is not None
+    mock_container.read_item.assert_called_once_with(item="rec_test123", partition_key="rec_test123")
+    mock_container.replace_item.assert_called_once()
+    replace_kwargs = mock_container.replace_item.call_args.kwargs
+    assert replace_kwargs["item"] == "rec_test123"
+    assert replace_kwargs["body"]["id"] == "rec_test123"
+    assert replace_kwargs["body"]["recipeId"] == "rec_test123"
+    assert replace_kwargs["body"]["recipeDetail"]["savedToDb"] is True
+
+
 def test_cosmos_list_recipes_uses_recipe_detail_schema():
     service = CosmosService()
     mock_container = MagicMock()

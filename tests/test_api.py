@@ -123,6 +123,75 @@ def test_list_recipes_endpoint():
     }
 
 
+def test_update_recipe_endpoint_success():
+    payload = RecipeResponse(
+        recipeDetail=RecipeDetailModel(
+            id="REC-1",
+            recipeId="REC-1",
+            name="Updated Soup",
+            images=["https://example.com/soup.jpg"],
+            instructions=[InstructionModel(title="", description="Simmer gently.", ingredients=[])],
+            ingredients=[IngredientModel(amount=1.0, name=LocalizedText(singular="onion", plural="onions"))],
+            sourceType="web",
+        )
+    )
+
+    with patch("app.api.v1.endpoints.cosmos_service.is_ready", return_value=True), patch(
+        "app.api.v1.endpoints.cosmos_service.update_recipe_async",
+        new=AsyncMock(return_value=payload.model_dump())
+    ):
+        response = client.put("/api/v1/recipes/REC-1", json=payload.model_dump())
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["recipeDetail"]["id"] == "REC-1"
+    assert data["recipeDetail"]["recipeId"] == "REC-1"
+    assert data["recipeDetail"]["name"] == "Updated Soup"
+
+
+def test_update_recipe_endpoint_rejects_mismatched_id():
+    payload = RecipeResponse(
+        recipeDetail=RecipeDetailModel(
+            id="REC-2",
+            recipeId="REC-2",
+            name="Updated Soup",
+            images=[],
+            instructions=[InstructionModel(title="", description="Simmer gently.", ingredients=[])],
+            ingredients=[IngredientModel(amount=1.0, name=LocalizedText(singular="onion", plural="onions"))],
+            sourceType="web",
+        )
+    )
+
+    with patch("app.api.v1.endpoints.cosmos_service.is_ready", return_value=True):
+        response = client.put("/api/v1/recipes/REC-1", json=payload.model_dump())
+
+    assert response.status_code == 400
+    assert "must match" in response.json()["detail"]
+
+
+def test_update_recipe_endpoint_not_found():
+    payload = RecipeResponse(
+        recipeDetail=RecipeDetailModel(
+            id="REC-1",
+            recipeId="REC-1",
+            name="Updated Soup",
+            images=[],
+            instructions=[InstructionModel(title="", description="Simmer gently.", ingredients=[])],
+            ingredients=[IngredientModel(amount=1.0, name=LocalizedText(singular="onion", plural="onions"))],
+            sourceType="web",
+        )
+    )
+
+    with patch("app.api.v1.endpoints.cosmos_service.is_ready", return_value=True), patch(
+        "app.api.v1.endpoints.cosmos_service.update_recipe_async",
+        new=AsyncMock(return_value=None)
+    ):
+        response = client.put("/api/v1/recipes/REC-1", json=payload.model_dump())
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+
+
 @pytest.mark.asyncio
 async def test_extract_recipe_non_recipe_content_validation():
     with patch(

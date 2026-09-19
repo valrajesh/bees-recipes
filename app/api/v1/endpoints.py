@@ -132,6 +132,51 @@ async def get_recipe_by_id(recipe_id: str):
     return recipe
 
 
+@router.put(
+    "/recipes/{recipe_id}",
+    response_model=RecipeResponse,
+    summary="Update saved recipe by ID in Cosmos DB",
+    description="Updates an existing recipe document in Azure Cosmos DB using the supplied recipeDetail payload."
+)
+async def update_recipe(recipe_id: str, payload: RecipeResponse) -> RecipeResponse:
+    """Updates an existing recipe document by recipeId."""
+    if not cosmos_service.is_ready():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cosmos DB is not configured or reachable. Check COSMOS_DB_ENDPOINT / COSMOS_DB_URL."
+        )
+
+    detail = payload.recipeDetail
+    provided_fields = detail.model_fields_set
+    if "id" in provided_fields and detail.id != recipe_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body recipeDetail.id must match the recipe_id path parameter."
+        )
+    if "recipeId" in provided_fields and detail.recipeId and detail.recipeId != recipe_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body recipeDetail.recipeId must match the recipe_id path parameter."
+        )
+
+    try:
+        updated = await cosmos_service.update_recipe_async(recipe_id, payload)
+    except Exception as e:
+        logger.exception(f"Failed to update recipe '{recipe_id}' in Cosmos DB: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update recipe '{recipe_id}' in Cosmos DB."
+        )
+
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recipe with ID '{recipe_id}' not found in Cosmos DB."
+        )
+
+    return RecipeResponse.model_validate(updated)
+
+
 @router.get(
     "/supported-platforms",
     response_model=SupportedPlatformsResponse,
