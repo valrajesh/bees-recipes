@@ -1,7 +1,8 @@
 """Integration tests for FastAPI endpoints."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
+from requests.exceptions import SSLError
 from fastapi.testclient import TestClient
 from app.main import app
 from app.schemas.recipe import (
@@ -11,6 +12,7 @@ from app.schemas.recipe import (
     RecipeDetailModel,
     RecipeResponse,
 )
+from app.services.image_proxy_service import ProxiedImage
 
 client = TestClient(app)
 
@@ -79,6 +81,7 @@ async def test_extract_recipe_endpoint_success():
         assert json_data["recipeDetail"]["sourceType"] == "web"
         assert len(json_data["recipeDetail"]["ingredients"]) == 1
         assert len(json_data["recipeDetail"]["images"]) == 1
+        assert json_data["recipeDetail"]["images"][0].startswith("http://testserver/api/v1/images/proxy?url=")
 
 
 @pytest.mark.asyncio
@@ -152,6 +155,63 @@ def test_extract_recipe_invalid_url():
         json={"url": "not-a-valid-url"}
     )
     assert response.status_code == 422  # Pydantic HttpUrl validation error
+
+
+def test_proxy_recipe_image_endpoint_success():
+    with patch(
+        "app.api.v1.endpoints.image_proxy_service.fetch_image",
+        return_value=ProxiedImage(content=b"image-bytes", media_type="image/jpeg")
+    ) as mock_fetch:
+        response = client.get(
+            "/api/v1/images/proxy",
+            params={"url": "https://scontent.cdninstagram.com/image.jpg"}
+        )
+
+    assert response.status_code == 200
+    assert response.content == b"image-bytes"
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.headers["cache-control"] == "public, max-age=86400"
+    mock_fetch.assert_called_once_with("https://scontent.cdninstagram.com/image.jpg")
+
+
+def test_proxy_recipe_image_endpoint_rejects_invalid_url():
+    with patch(
+        "app.api.v1.endpoints.image_proxy_service.fetch_image",
+        side_effect=ValueError("Private or local image URLs are not allowed.")
+    ):
+        response = client.get(
+            "/api/v1/images/proxy",
+            params={"url": "http://localhost/image.jpg"}
+        )
+
+    assert response.status_code == 400
+    assert "not allowed" in response.json()["detail"]
+
+
+def test_proxy_recipe_image_endpoint_retries_ssl_verification_failure():
+    first_response = SSLError("certificate verify failed")
+    second_response = MagicMock()
+    second_response.headers = {"content-type": "image/jpeg"}
+    second_response.content = b"image-bytes"
+    second_response.raise_for_status.return_value = None
+
+    with patch(
+        "app.services.image_proxy_service.socket.getaddrinfo",
+        return_value=[(None, None, None, None, ("8.8.8.8", 0))]
+    ), patch(
+        "app.services.image_proxy_service.requests.get",
+        side_effect=[first_response, second_response]
+    ) as mock_get:
+        response = client.get(
+            "/api/v1/images/proxy",
+            params={"url": "https://scontent.cdninstagram.com/image.jpg"}
+        )
+
+    assert response.status_code == 200
+    assert response.content == b"image-bytes"
+    assert mock_get.call_count == 2
+    assert mock_get.call_args_list[0].kwargs["verify"] is True
+    assert mock_get.call_args_list[1].kwargs["verify"] is False
 
 
 def test_list_recipes_endpoint():

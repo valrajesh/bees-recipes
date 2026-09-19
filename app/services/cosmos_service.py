@@ -104,7 +104,18 @@ class CosmosService:
 
         try:
             detail = recipe.recipeDetail
-            doc_id = detail.id or detail.recipeId or str(uuid.uuid4()).upper()
+            if detail.recipeId:
+                doc_id = detail.recipeId
+            elif detail.sourceUrl:
+                existing_recipe = self.get_recipe_by_source_url(detail.sourceUrl)
+                doc_id = (
+                    existing_recipe.get("recipeId")
+                    or existing_recipe.get("id")
+                    if existing_recipe
+                    else self.generate_recipe_id(detail.sourceUrl)
+                )
+            else:
+                doc_id = detail.id or str(uuid.uuid4()).upper()
             detail.id = doc_id
             detail.recipeId = doc_id
 
@@ -148,6 +159,12 @@ class CosmosService:
         alternate_url = normalized_url.rstrip("/") if normalized_url.endswith("/") else f"{normalized_url}/"
 
         try:
+            stable_recipe_id = self.generate_recipe_id(normalized_url)
+            try:
+                return self._container.read_item(item=stable_recipe_id, partition_key=stable_recipe_id)
+            except exceptions.CosmosResourceNotFoundError:
+                pass
+
             items = list(self._container.query_items(
                 query=(
                     "SELECT * FROM c WHERE c.recipeDetail.sourceUrl = @source_url "

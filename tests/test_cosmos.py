@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock
 import pytest
+from azure.cosmos import exceptions
 from app.schemas.recipe import (
     IngredientModel,
     InstructionModel,
@@ -47,14 +48,40 @@ def test_cosmos_save_recipe_when_ready(mock_recipe):
     mock_container = MagicMock()
     service._container = mock_container
     service._client = MagicMock()
+    mock_recipe.recipeDetail.id = "RANDOM-ID"
+    mock_recipe.recipeDetail.recipeId = None
+    mock_container.read_item.side_effect = exceptions.CosmosResourceNotFoundError
+    mock_container.query_items.return_value = []
 
     success, doc_id = service.save_recipe(mock_recipe)
     assert success is True
     assert doc_id is not None
+    assert doc_id == CosmosService.generate_recipe_id(mock_recipe.recipeDetail.sourceUrl)
     assert mock_recipe.recipeDetail.recipeId == doc_id
     assert mock_container.upsert_item.called
     saved_doc = mock_container.upsert_item.call_args[1]["body"]
     assert saved_doc["recipeId"] == doc_id
+
+
+def test_cosmos_save_recipe_reuses_existing_source_url_document(mock_recipe):
+    service = CosmosService()
+    mock_container = MagicMock()
+    mock_container.read_item.side_effect = exceptions.CosmosResourceNotFoundError
+    mock_container.query_items.return_value = [
+        {"id": "EXISTING-ID", "recipeId": "EXISTING-ID", "recipeDetail": {"sourceUrl": mock_recipe.recipeDetail.sourceUrl}}
+    ]
+    service._container = mock_container
+    service._client = MagicMock()
+    mock_recipe.recipeDetail.id = "NEW-RANDOM-ID"
+    mock_recipe.recipeDetail.recipeId = None
+
+    success, doc_id = service.save_recipe(mock_recipe)
+
+    assert success is True
+    assert doc_id == "EXISTING-ID"
+    saved_doc = mock_container.upsert_item.call_args[1]["body"]
+    assert saved_doc["id"] == "EXISTING-ID"
+    assert saved_doc["recipeId"] == "EXISTING-ID"
 
 
 def test_cosmos_get_recipe(mock_recipe):
@@ -74,6 +101,7 @@ def test_cosmos_get_recipe(mock_recipe):
 def test_cosmos_get_recipe_by_source_url_queries_source_url_variants():
     service = CosmosService()
     mock_container = MagicMock()
+    mock_container.read_item.side_effect = exceptions.CosmosResourceNotFoundError
     mock_container.query_items.return_value = [
         {"id": "rec_123", "recipeId": "rec_123", "recipeDetail": {"sourceUrl": "https://example.com/recipe/"}}
     ]
@@ -91,6 +119,21 @@ def test_cosmos_get_recipe_by_source_url_queries_source_url_variants():
         {"name": "@source_url", "value": "https://example.com/recipe/"},
         {"name": "@alternate_url", "value": "https://example.com/recipe"},
     ]
+
+
+def test_cosmos_get_recipe_by_source_url_uses_stable_id_point_read():
+    service = CosmosService()
+    mock_container = MagicMock()
+    stable_id = CosmosService.generate_recipe_id("https://example.com/recipe/")
+    mock_container.read_item.return_value = {"id": stable_id, "recipeId": stable_id}
+    service._container = mock_container
+    service._client = MagicMock()
+
+    res = service.get_recipe_by_source_url("https://example.com/recipe/")
+
+    assert res["id"] == stable_id
+    mock_container.read_item.assert_called_once_with(item=stable_id, partition_key=stable_id)
+    mock_container.query_items.assert_not_called()
 
 
 def test_cosmos_update_recipe_replaces_existing_document(mock_recipe):
