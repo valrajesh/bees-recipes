@@ -89,6 +89,40 @@ def test_extract_recipe_invalid_url():
     assert response.status_code == 422  # Pydantic HttpUrl validation error
 
 
+def test_list_recipes_endpoint():
+    with patch("app.api.v1.endpoints.cosmos_service.is_ready", return_value=True), patch(
+        "app.api.v1.endpoints.cosmos_service.list_recipes_async",
+        new=AsyncMock(return_value=[
+            {
+                "id": "REC-1",
+                "recipeId": "REC-1",
+                "recipeDetail": {
+                    "name": "Test Soup",
+                    "sourceType": "web",
+                    "images": [],
+                },
+            }
+        ])
+    ):
+        response = client.get("/api/v1/recipes?limit=10&source_type=web")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "count": 1,
+        "recipes": [
+            {
+                "id": "REC-1",
+                "recipeId": "REC-1",
+                "recipeDetail": {
+                    "name": "Test Soup",
+                    "sourceType": "web",
+                    "images": [],
+                },
+            }
+        ],
+    }
+
+
 @pytest.mark.asyncio
 async def test_extract_recipe_non_recipe_content_validation():
     with patch(

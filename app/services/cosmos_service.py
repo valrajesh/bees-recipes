@@ -140,16 +140,16 @@ class CosmosService:
             return None
 
     def list_recipes(self, limit: int = 50, source_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Lists recently saved recipes from Cosmos DB."""
+        """Lists recently saved recipeDetail documents from Cosmos DB."""
         if not self.is_ready():
             return []
 
         try:
             if source_type:
-                query = "SELECT * FROM c WHERE c.source_type = @source_type ORDER BY c.extracted_at DESC"
+                query = "SELECT * FROM c WHERE c.recipeDetail.sourceType = @source_type ORDER BY c._ts DESC"
                 parameters = [{"name": "@source_type", "value": source_type}]
             else:
-                query = "SELECT * FROM c ORDER BY c.extracted_at DESC"
+                query = "SELECT * FROM c ORDER BY c._ts DESC"
                 parameters = []
 
             items = list(self._container.query_items(

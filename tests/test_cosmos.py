@@ -69,3 +69,20 @@ def test_cosmos_get_recipe(mock_recipe):
     assert res["name"] == "Test"
     assert res["recipeId"] == "rec_123"
     mock_container.read_item.assert_called_once_with(item="rec_123", partition_key="rec_123")
+
+
+def test_cosmos_list_recipes_uses_recipe_detail_schema():
+    service = CosmosService()
+    mock_container = MagicMock()
+    mock_container.query_items.return_value = [
+        {"recipeId": "rec_1", "recipeDetail": {"name": "Soup", "sourceType": "web"}}
+    ]
+    service._container = mock_container
+
+    recipes = service.list_recipes(limit=10, source_type="web")
+
+    assert len(recipes) == 1
+    assert recipes[0]["recipeDetail"]["name"] == "Soup"
+    query = mock_container.query_items.call_args.kwargs["query"]
+    assert "c.recipeDetail.sourceType" in query
+    assert "c._ts" in query
