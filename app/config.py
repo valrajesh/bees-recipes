@@ -21,6 +21,10 @@ class Settings:
         )
         self.ENVIRONMENT: str = os.getenv("ENVIRONMENT", os.getenv("APP_ENV", "development"))
         self.LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+        self.USE_APIM: bool = os.getenv(
+            "USE_APIM",
+            "false" if self.ENVIRONMENT.lower() == "local" else "true"
+        ).lower() in ("true", "1", "yes")
 
         # Key Vault configuration
         self.KEY_VAULT_NAME: Optional[str] = (
@@ -33,20 +37,24 @@ class Settings:
             self._load_keyvault_secrets()
 
         # Azure OpenAI / APIM configuration. APIM takes precedence when configured.
-        self.AZURE_OPENAI_APIM_ENDPOINT: Optional[str] = (
-            self._keyvault_secrets.get("azure-openai-apim-endpoint")
-            or os.getenv("AZUREOPENAI_APIM_API_ENDPOINT")
-            or os.getenv("AZURE_OPENAI_APIM_ENDPOINT")
-        )
+        self.AZURE_OPENAI_APIM_ENDPOINT: Optional[str] = None
+        if self.USE_APIM:
+            self.AZURE_OPENAI_APIM_ENDPOINT = (
+                self._keyvault_secrets.get("azure-openai-apim-endpoint")
+                or os.getenv("AZUREOPENAI_APIM_API_ENDPOINT")
+                or os.getenv("AZURE_OPENAI_APIM_ENDPOINT")
+            )
         if self.AZURE_OPENAI_APIM_ENDPOINT:
             self.AZURE_OPENAI_APIM_ENDPOINT = self.AZURE_OPENAI_APIM_ENDPOINT.rstrip("/")
             if self.AZURE_OPENAI_APIM_ENDPOINT.lower().endswith("/openai"):
                 self.AZURE_OPENAI_APIM_ENDPOINT = self.AZURE_OPENAI_APIM_ENDPOINT[:-len("/openai")]
-        self.AZURE_OPENAI_APIM_API_KEY: Optional[str] = (
-            self._keyvault_secrets.get("azure-openai-apim-key")
-            or os.getenv("AZUREOPENAI_APIM_API_KEY")
-            or os.getenv("AZURE_OPENAI_APIM_API_KEY")
-        )
+        self.AZURE_OPENAI_APIM_API_KEY: Optional[str] = None
+        if self.USE_APIM:
+            self.AZURE_OPENAI_APIM_API_KEY = (
+                self._keyvault_secrets.get("azure-openai-apim-key")
+                or os.getenv("AZUREOPENAI_APIM_API_KEY")
+                or os.getenv("AZURE_OPENAI_APIM_API_KEY")
+            )
 
         self.AZURE_OPENAI_ENDPOINT: Optional[str] = (
             self.AZURE_OPENAI_APIM_ENDPOINT
