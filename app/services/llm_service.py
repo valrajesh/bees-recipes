@@ -39,8 +39,8 @@ class AzureOpenAIService:
             return
 
         default_headers = {}
-        if settings.APIM_SUBSCRIPTION_KEY_HEADER and settings.AZURE_OPENAI_API_KEY:
-            default_headers[settings.APIM_SUBSCRIPTION_KEY_HEADER] = settings.AZURE_OPENAI_API_KEY
+        if settings.is_apim_configured:
+            default_headers[settings.APIM_SUBSCRIPTION_KEY_HEADER] = settings.AZURE_OPENAI_APIM_API_KEY
 
         try:
             self._client = AzureOpenAI(
@@ -51,7 +51,8 @@ class AzureOpenAIService:
                 timeout=settings.REQUEST_TIMEOUT_SECONDS,
             )
             logger.info(
-                f"AzureOpenAI client successfully initialized (endpoint: {settings.AZURE_OPENAI_ENDPOINT}, "
+                f"AzureOpenAI client successfully initialized ({'APIM' if settings.is_apim_configured else 'direct Azure OpenAI'}, "
+                f"endpoint: {settings.AZURE_OPENAI_ENDPOINT}, "
                 f"deployment: {settings.AZURE_OPENAI_DEPLOYMENT_NAME})"
             )
         except Exception as e:

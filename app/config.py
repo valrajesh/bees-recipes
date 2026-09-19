@@ -32,22 +32,34 @@ class Settings:
         if self.KEY_VAULT_NAME and self.KEY_VAULT_NAME.strip():
             self._load_keyvault_secrets()
 
-        # Azure OpenAI / APIM configuration
-        # Checks Key Vault secrets first, then falls back to environment variables / .env
-        self.AZURE_OPENAI_ENDPOINT: Optional[str] = (
-            self._keyvault_secrets.get("azure-openai-endpoint")
-            or os.getenv("AZURE_OPENAI_ENDPOINT")
+        # Azure OpenAI / APIM configuration. APIM takes precedence when configured.
+        self.AZURE_OPENAI_APIM_ENDPOINT: Optional[str] = (
+            self._keyvault_secrets.get("azure-openai-apim-endpoint")
             or os.getenv("AZUREOPENAI_APIM_API_ENDPOINT")
+            or os.getenv("AZURE_OPENAI_APIM_ENDPOINT")
+        )
+        if self.AZURE_OPENAI_APIM_ENDPOINT:
+            self.AZURE_OPENAI_APIM_ENDPOINT = self.AZURE_OPENAI_APIM_ENDPOINT.rstrip("/")
+            if self.AZURE_OPENAI_APIM_ENDPOINT.lower().endswith("/openai"):
+                self.AZURE_OPENAI_APIM_ENDPOINT = self.AZURE_OPENAI_APIM_ENDPOINT[:-len("/openai")]
+        self.AZURE_OPENAI_APIM_API_KEY: Optional[str] = (
+            self._keyvault_secrets.get("azure-openai-apim-key")
+            or os.getenv("AZUREOPENAI_APIM_API_KEY")
+            or os.getenv("AZURE_OPENAI_APIM_API_KEY")
+        )
+
+        self.AZURE_OPENAI_ENDPOINT: Optional[str] = (
+            self.AZURE_OPENAI_APIM_ENDPOINT
+            or self._keyvault_secrets.get("azure-openai-endpoint")
+            or os.getenv("AZURE_OPENAI_ENDPOINT")
             or os.getenv("AZUREOPENAI_API_ENDPOINT")
-            or os.getenv("AZURE_OPENAI_APIM_API_ENDPOINT")
         )
 
         self.AZURE_OPENAI_API_KEY: Optional[str] = (
-            self._keyvault_secrets.get("azure-openai-api-key")
+            self.AZURE_OPENAI_APIM_API_KEY
+            or self._keyvault_secrets.get("azure-openai-api-key")
             or os.getenv("AZURE_OPENAI_API_KEY")
-            or os.getenv("AZUREOPENAI_APIM_API_KEY")
             or os.getenv("AZUREOPENAI_API_KEY")
-            or os.getenv("AZURE_OPENAI_APIM_API_KEY")
         )
 
         self.AZURE_OPENAI_DEPLOYMENT_NAME: str = (
@@ -64,7 +76,10 @@ class Settings:
         )
 
         # Optional APIM custom header if required by enterprise gateway
-        self.APIM_SUBSCRIPTION_KEY_HEADER: Optional[str] = os.getenv("APIM_SUBSCRIPTION_KEY_HEADER")
+        self.APIM_SUBSCRIPTION_KEY_HEADER: str = os.getenv(
+            "APIM_SUBSCRIPTION_KEY_HEADER",
+            "Ocp-Apim-Subscription-Key"
+        )
 
         # Azure Cosmos DB Configuration
         self.COSMOS_DB_ENDPOINT: Optional[str] = (
@@ -118,6 +133,8 @@ class Settings:
             client = SecretClient(vault_url=vault_url, credential=credential)
 
             secrets_to_fetch = [
+                "azure-openai-apim-endpoint",
+                "azure-openai-apim-key",
                 "azure-openai-endpoint",
                 "azure-openai-api-key",
                 "cosmos-db-endpoint",
@@ -137,6 +154,11 @@ class Settings:
     def is_openai_configured(self) -> bool:
         """Returns True if minimum Azure OpenAI connection settings are present."""
         return bool(self.AZURE_OPENAI_ENDPOINT and self.AZURE_OPENAI_API_KEY)
+
+    @property
+    def is_apim_configured(self) -> bool:
+        """Returns True when the configured Azure OpenAI endpoint is APIM."""
+        return bool(self.AZURE_OPENAI_APIM_ENDPOINT and self.AZURE_OPENAI_APIM_API_KEY)
 
     @property
     def is_cosmos_configured(self) -> bool:
