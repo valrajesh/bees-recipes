@@ -1,7 +1,10 @@
 """Unit tests for Web extractor and HTML cleaner."""
 
+from unittest.mock import AsyncMock, patch
 import pytest
+from app.schemas.recipe import IngredientModel, InstructionModel, LLMRecipeExtraction, LocalizedText
 from app.services.extractors.web import WebExtractor
+from app.services.llm_service import llm_service
 from app.utils.html_cleaner import clean_html_for_llm
 
 
@@ -76,3 +79,40 @@ def test_html_cleaner():
     assert "tracking" not in cleaned
     assert "Sidebar ad" not in cleaned
     assert "Copyright" not in cleaned
+
+
+@pytest.mark.asyncio
+async def test_web_llm_fallback_retries_title_when_core_fields_empty(web_extractor):
+    html = """
+    <html>
+      <head><title>Cabbage Carbonara</title></head>
+      <body><main><p>This page requires JavaScript.</p></main></body>
+    </html>
+    """
+    incomplete = LLMRecipeExtraction(
+        name="Cabbage Carbonara",
+        instructions=[],
+        ingredients=[],
+    )
+    complete = LLMRecipeExtraction(
+        name="Cabbage Carbonara",
+        instructions=[InstructionModel(title="", description="Roast cabbage and mix with sauce.", ingredients=[])],
+        ingredients=[IngredientModel(amount=1.0, name=LocalizedText(singular="cabbage", plural="cabbages"))],
+    )
+
+    with patch.object(web_extractor, "_fetch_html", return_value=html), patch(
+        "app.services.extractors.web.scrape_html",
+        side_effect=Exception("schema missing")
+    ), patch.object(
+        llm_service,
+        "extract_recipe_structured_async",
+        new=AsyncMock(side_effect=[incomplete, complete])
+    ) as mock_extract:
+        response = await web_extractor.extract_recipe("https://example.com/cabbage-carbonara")
+
+    assert mock_extract.await_count == 2
+    retry_text = mock_extract.await_args_list[1].args[0]
+    assert "RECIPE TITLE OR PAGE TITLE: Cabbage Carbonara" in retry_text
+    assert response.recipeDetail.extractionMethod == "llm_title_inferred"
+    assert len(response.recipeDetail.ingredients) == 1
+    assert len(response.recipeDetail.instructions) == 1

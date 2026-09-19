@@ -139,6 +139,32 @@ class CosmosService:
             logger.error(f"Error reading recipe '{recipe_id}' from Cosmos DB: {e}")
             return None
 
+    def get_recipe_by_source_url(self, source_url: str) -> Optional[Dict[str, Any]]:
+        """Retrieves the most recent recipe document saved for a source URL."""
+        if not self.is_ready():
+            return None
+
+        normalized_url = source_url.strip()
+        alternate_url = normalized_url.rstrip("/") if normalized_url.endswith("/") else f"{normalized_url}/"
+
+        try:
+            items = list(self._container.query_items(
+                query=(
+                    "SELECT * FROM c WHERE c.recipeDetail.sourceUrl = @source_url "
+                    "OR c.recipeDetail.sourceUrl = @alternate_url ORDER BY c._ts DESC"
+                ),
+                parameters=[
+                    {"name": "@source_url", "value": normalized_url},
+                    {"name": "@alternate_url", "value": alternate_url},
+                ],
+                max_item_count=1,
+                enable_cross_partition_query=True,
+            ))
+            return items[0] if items else None
+        except Exception as e:
+            logger.error(f"Error reading recipe by source URL from Cosmos DB: {e}")
+            return None
+
     def update_recipe(self, recipe_id: str, recipe: RecipeResponse) -> Optional[Dict[str, Any]]:
         """Updates an existing recipe document in Cosmos DB by recipeId."""
         if not self.is_ready():
@@ -200,6 +226,10 @@ class CosmosService:
     async def get_recipe_async(self, recipe_id: str) -> Optional[Dict[str, Any]]:
         """Asynchronously retrieves a recipe by recipeId from Cosmos DB."""
         return await asyncio.to_thread(self.get_recipe, recipe_id)
+
+    async def get_recipe_by_source_url_async(self, source_url: str) -> Optional[Dict[str, Any]]:
+        """Asynchronously retrieves the most recent recipe by source URL."""
+        return await asyncio.to_thread(self.get_recipe_by_source_url, source_url)
 
     async def update_recipe_async(self, recipe_id: str, recipe: RecipeResponse) -> Optional[Dict[str, Any]]:
         """Asynchronously updates recipe in Cosmos DB."""

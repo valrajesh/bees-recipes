@@ -71,6 +71,28 @@ def test_cosmos_get_recipe(mock_recipe):
     mock_container.read_item.assert_called_once_with(item="rec_123", partition_key="rec_123")
 
 
+def test_cosmos_get_recipe_by_source_url_queries_source_url_variants():
+    service = CosmosService()
+    mock_container = MagicMock()
+    mock_container.query_items.return_value = [
+        {"id": "rec_123", "recipeId": "rec_123", "recipeDetail": {"sourceUrl": "https://example.com/recipe/"}}
+    ]
+    service._container = mock_container
+    service._client = MagicMock()
+
+    res = service.get_recipe_by_source_url("https://example.com/recipe/")
+
+    assert res is not None
+    query_kwargs = mock_container.query_items.call_args.kwargs
+    assert "c.recipeDetail.sourceUrl" in query_kwargs["query"]
+    assert query_kwargs["max_item_count"] == 1
+    assert query_kwargs["enable_cross_partition_query"] is True
+    assert query_kwargs["parameters"] == [
+        {"name": "@source_url", "value": "https://example.com/recipe/"},
+        {"name": "@alternate_url", "value": "https://example.com/recipe"},
+    ]
+
+
 def test_cosmos_update_recipe_replaces_existing_document(mock_recipe):
     service = CosmosService()
     mock_container = MagicMock()

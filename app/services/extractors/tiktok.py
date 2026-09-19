@@ -176,10 +176,21 @@ class TikTokExtractor(BaseExtractor):
             context_hint += f" | Creator: {author}"
 
         # Extract structured recipe via Azure OpenAI
-        extracted = await llm_service.extract_recipe_structured_async(
-            raw_text=caption,
-            platform_context=context_hint
+        title_inference_text = (
+            f"TIKTOK VIDEO TITLE/CAPTION: {caption[:500]}\n"
+            f"CREATOR: @{author or 'unknown'} | URL: {url}\n"
+            f"(Note: Caption extraction did not produce usable ingredients or instructions. "
+            f"If this title/caption describes a cooking recipe or dish, infer standard authentic ingredients and instructions. "
+            f"If it is NOT a recipe, mark is_recipe=false.)"
         )
+        extracted, used_title_retry = await llm_service.extract_recipe_with_title_retry_async(
+            raw_text=caption,
+            platform_context=context_hint,
+            title_inference_text=title_inference_text,
+            title_platform_context=context_hint,
+        )
+        if used_title_retry:
+            extraction_method = "llm_title_inferred"
 
         images = [image_url] if image_url else []
 

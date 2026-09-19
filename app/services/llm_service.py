@@ -157,6 +157,37 @@ class AzureOpenAIService:
         """Asynchronously calls the Azure OpenAI Structured Outputs extraction in a worker thread."""
         return await asyncio.to_thread(self.extract_recipe_structured, raw_text, platform_context)
 
+    @staticmethod
+    def has_core_recipe_fields(recipe: LLMRecipeExtraction) -> bool:
+        """Checks whether the LLM returned the minimum usable recipe core."""
+        return bool(recipe.ingredients and recipe.instructions)
+
+    async def extract_recipe_with_title_retry_async(
+        self,
+        raw_text: str,
+        platform_context: Optional[str],
+        title_inference_text: Optional[str],
+        title_platform_context: Optional[str] = None,
+    ) -> tuple[LLMRecipeExtraction, bool]:
+        """Extracts a recipe and retries once with title context if core fields are empty."""
+        extracted = await self.extract_recipe_structured_async(raw_text, platform_context)
+        if self.has_core_recipe_fields(extracted):
+            return extracted, False
+
+        retry_text = (title_inference_text or "").strip()
+        if not retry_text or retry_text == raw_text.strip():
+            return extracted, False
+
+        logger.info(
+            "LLM extraction returned empty ingredients or instructions. "
+            "Retrying once with title-based recipe inference."
+        )
+        retried = await self.extract_recipe_structured_async(
+            retry_text,
+            title_platform_context or platform_context,
+        )
+        return retried, True
+
 
 # Global singleton instance
 llm_service = AzureOpenAIService.get_instance()

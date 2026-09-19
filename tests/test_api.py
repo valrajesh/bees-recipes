@@ -81,6 +81,71 @@ async def test_extract_recipe_endpoint_success():
         assert len(json_data["recipeDetail"]["images"]) == 1
 
 
+@pytest.mark.asyncio
+async def test_extract_recipe_endpoint_returns_cached_recipe_when_source_url_exists():
+    cached_doc = {
+        "id": "REC-1",
+        "recipeId": "REC-1",
+        "recipeDetail": {
+            "id": "REC-1",
+            "recipeId": "REC-1",
+            "name": "Cached Soup",
+            "images": [],
+            "instructions": [{"title": "", "description": "Warm gently.", "ingredients": []}],
+            "ingredients": [{"amount": 1.0, "name": {"singular": "onion", "plural": "onions"}, "unit": None}],
+            "sourceUrl": "https://example.com/cached-soup/",
+            "sourceType": "web",
+            "extractionMethod": "llm",
+            "savedToDb": True,
+        },
+    }
+
+    with patch("app.api.v1.endpoints.cosmos_service.is_ready", return_value=True), patch(
+        "app.api.v1.endpoints.cosmos_service.get_recipe_by_source_url_async",
+        new=AsyncMock(return_value=cached_doc)
+    ), patch(
+        "app.api.v1.endpoints.extractor_router.route_and_extract",
+        new=AsyncMock()
+    ) as mock_extract:
+        response = client.post(
+            "/api/v1/extract-recipe",
+            json={"url": "https://example.com/cached-soup/"}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["recipeDetail"]["name"] == "Cached Soup"
+    mock_extract.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_extract_recipe_endpoint_force_llm_bypasses_cached_recipe():
+    detail = RecipeDetailModel(
+        name="Fresh Soup",
+        images=[],
+        instructions=[InstructionModel(title="", description="Cook fresh.", ingredients=[])],
+        ingredients=[IngredientModel(amount=1.0, name=LocalizedText(singular="onion", plural="onions"))],
+        sourceUrl="https://example.com/cached-soup/",
+        sourceType="web",
+        extractionMethod="llm",
+    )
+
+    with patch("app.api.v1.endpoints.cosmos_service.is_ready", return_value=True), patch(
+        "app.api.v1.endpoints.cosmos_service.get_recipe_by_source_url_async",
+        new=AsyncMock()
+    ) as mock_cache, patch(
+        "app.api.v1.endpoints.extractor_router.route_and_extract",
+        new=AsyncMock(return_value=RecipeResponse(recipeDetail=detail))
+    ):
+        response = client.post(
+            "/api/v1/extract-recipe",
+            json={"url": "https://example.com/cached-soup/", "force_llm": True}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["recipeDetail"]["name"] == "Fresh Soup"
+    mock_cache.assert_not_awaited()
+
+
 def test_extract_recipe_invalid_url():
     response = client.post(
         "/api/v1/extract-recipe",

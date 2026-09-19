@@ -33,6 +33,14 @@ async def extract_recipe(payload: RecipeRequest) -> RecipeResponse:
     logger.info(f"Incoming recipe extraction request for URL: {url_str} (force_llm={payload.force_llm})")
 
     try:
+        if not payload.force_llm and cosmos_service.is_ready():
+            cached_recipe = await cosmos_service.get_recipe_by_source_url_async(url_str)
+            if cached_recipe:
+                logger.info(f"Returning cached recipe from Cosmos DB for URL: {url_str}")
+                cached_response = RecipeResponse.model_validate(cached_recipe)
+                cached_response.recipeDetail.savedToDb = True
+                return cached_response
+
         response = await extractor_router.route_and_extract(
             url=url_str,
             force_llm=payload.force_llm

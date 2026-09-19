@@ -231,10 +231,22 @@ class YouTubeExtractor(BaseExtractor):
             context_hint += f" | Channel: {author}"
 
         # Extract structured output via Azure OpenAI
-        extracted = await llm_service.extract_recipe_structured_async(
+        title_inference_text = None
+        if title:
+            title_inference_text = (
+                f"VIDEO TITLE: {title}\n"
+                f"(Note: Transcript/description extraction did not produce usable ingredients or instructions. "
+                f"If this video title describes a cooking recipe or dish, infer standard authentic ingredients and instructions. "
+                f"If it is NOT a cooking recipe, set is_recipe=false.)"
+            )
+        extracted, used_title_retry = await llm_service.extract_recipe_with_title_retry_async(
             raw_text=text_content,
-            platform_context=context_hint
+            platform_context=context_hint,
+            title_inference_text=title_inference_text,
+            title_platform_context=context_hint,
         )
+        if used_title_retry:
+            extraction_method = "llm_title_inferred"
 
         final_title = extracted.name
         if title and (not final_title or final_title.lower() in ["recipe", "extracted recipe", "untitled"]):

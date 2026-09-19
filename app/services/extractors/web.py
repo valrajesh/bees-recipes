@@ -57,6 +57,26 @@ class WebExtractor(BaseExtractor):
         res.raise_for_status()
         return res.text
 
+    def _extract_title_hint(self, html: str) -> Optional[str]:
+        """Extracts the best available page title for title-based inference."""
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "html.parser")
+            title_meta = (
+                soup.find("meta", property="og:title")
+                or soup.find("meta", attrs={"name": "twitter:title"})
+            )
+            if title_meta and title_meta.get("content"):
+                return title_meta["content"].strip()
+            if soup.title and soup.title.string:
+                return soup.title.string.strip()
+            h1 = soup.find("h1")
+            if h1:
+                return h1.get_text(separator=" ", strip=True)
+        except Exception as e:
+            logger.debug(f"Unable to extract title hint from HTML: {e}")
+        return None
+
     def _parse_ingredient_line(self, line: str) -> IngredientModel:
         """Heuristic parser to break raw ingredient strings into structured IngredientModel."""
         clean_line = line.strip()
@@ -280,6 +300,7 @@ class WebExtractor(BaseExtractor):
         # -------------------------------------------------------------
         logger.info(f"Executing LLM fallback extraction for web URL: {url}")
         cleaned_text = clean_html_for_llm(html, max_chars=settings.MAX_HTML_CHARS)
+        title_hint = self._extract_title_hint(html)
 
         extraction_method = "llm"
         if not cleaned_text.strip():
@@ -291,10 +312,21 @@ class WebExtractor(BaseExtractor):
             )
             extraction_method = "llm_title_inferred"
 
-        extracted = await llm_service.extract_recipe_structured_async(
-            raw_text=cleaned_text,
-            platform_context=f"Website URL: {url}"
+        title_inference_text = (
+            f"WEBSITE URL: {url}\n"
+            f"RECIPE TITLE OR PAGE TITLE: {title_hint or url}\n"
+            f"(Note: The primary scraper and content-based LLM fallback did not produce usable ingredients or instructions. "
+            f"If this title/URL represents a culinary recipe or dish, infer standard authentic ingredients and cooking instructions. "
+            f"If it is NOT a recipe, mark is_recipe=false.)"
         )
+        extracted, used_title_retry = await llm_service.extract_recipe_with_title_retry_async(
+            raw_text=cleaned_text,
+            platform_context=f"Website URL: {url}",
+            title_inference_text=title_inference_text,
+            title_platform_context=f"Website URL: {url} | Title: {title_hint or url}",
+        )
+        if used_title_retry:
+            extraction_method = "llm_title_inferred"
 
         # Extract image from HTML if available
         images = []
